@@ -1,8 +1,7 @@
-Executable = hw3.py
+Executable = hw3.sh
 Universe   = vanilla
-arguments  = hw3/parses.train hw3/trained.pcfg hw3/sents.test hw3/parses.hyp
+arguments  = /dropbox/13-14/571/hw3/tools
 getenv     = true
-output     = hw3/hw3.out
 error      = hw3.error
 Log        = hw3.log
 transfer_executable = false
