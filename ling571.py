@@ -9,7 +9,6 @@ class Rule:
     splitter = '->'
 
     def __init__(self, left = None, right = None):
-        self.logProbability = 0
 
         if not left is None and not right is None:
             self.buildRule(left, right)
@@ -17,6 +16,7 @@ class Rule:
             self._string = ''
             self.left = None
             self.right = []
+            self.logProbability = 0
 
     def __eq__(self,other):
         other.toString() == self.toString()
@@ -83,7 +83,7 @@ class Tag:
     def __init__(self, name):
         self.name = name.strip()
         self.pointers = []
-        self.isPreTerminal = False
+        self.logProbability = 0
 
     def __eq__(self, other):
         return self.name == other.name
@@ -92,6 +92,9 @@ class Tag:
         if self.name.count('\'') >= 2:
             return True
         return False
+
+    def getProbability(self):
+        return math.pow(10,self.logProbability)
 
 
 class Pointer:
@@ -310,6 +313,8 @@ class CnfGrammar(Grammar):
     def _sortRules(self, rules):
         for rule in rules:
             if self._isCnf(rule):
+                #if any(i.right == rule.right for i in self._done):
+                #    continue
                 self._done.append(copy.deepcopy(rule))
             else:
                 self._todo.append(copy.deepcopy(rule))
@@ -327,7 +332,6 @@ class CnfGrammar(Grammar):
         self._convertNonBinaries()
 
         self.rules = self._done
-
 
 class Parser:
     start = '('
@@ -350,7 +354,7 @@ class Parser:
 
             self._sentences.append(line.replace('\n', ''))
 
-    def writeParsesToFile(self, fileName):
+    def writeParsesToFile(self, fileName, includeSentence = True, includeCounts = True):
         #    total number of parses
         totalCnt = 0
         #    total number of sentences
@@ -358,7 +362,7 @@ class Parser:
 
         #    clear parse output file
         output = open(fileName, 'w')
-        output.write('#\t' + __author__ + '\n\n')
+        #output.write('#\t' + __author__ + '\n\n')
         output.close()
 
         #    generate and print trees for each sentence
@@ -368,18 +372,25 @@ class Parser:
 
             output = open(fileName, 'a')
 
-            output.write(sentence + '\n')
-            for parse in parses:
-                output.write(parse + '\n')
+            if includeSentence:
+                output.write(sentence + '\n')
 
-            output.write('\n' + str(parseCnt) + '\n\n')
+            if len(parses) == 0:
+                output.write('\n')
+            else:
+                for parse in parses:
+                    output.write(parse + '\n')
+
+            if includeCounts:
+                output.write('\n' + str(parseCnt) + '\n\n')
 
             totalCnt += parseCnt
             sentenceCnt += 1
 
         #    calculate and print average number of parses per sentence
         output = open(fileName, 'a')
-        output.write(str(float(totalCnt) / float(sentenceCnt)) + '\n')
+        if includeCounts:
+            output.write(str(float(totalCnt) / float(sentenceCnt)) + '\n')
         output.close()
 
 
@@ -480,7 +491,7 @@ class ProbCkyParser(Parser):
         Parser.__init__(self)
         self._grammar = cnfGrammar
 
-    def readParses(self, fileName):
+    def train(self, fileName):
         inputFile = open(fileName)
         parseLines = inputFile.readlines()
         inputFile.close()
@@ -520,6 +531,10 @@ class ProbCkyParser(Parser):
                 leftCount = leftCounts[rule.left.name]
                 ruleCount = ruleCounts[string]
                 rule.logProbability = math.log10(float(ruleCount)) - math.log10(float(leftCount))
+
+                if len(rule.right) == 1:
+                    rule.firstRight().logProbability = rule.logProbability
+
                 self._grammar.rules.append(rule)
                 addedToGrammar.append(string)
 
@@ -555,6 +570,98 @@ class ProbCkyParser(Parser):
             else:
                 ruleIdx = len(newRules) - 1
                 newRules[ruleIdx].addToRule(Tag(token))
+
+    def _buildTable(self, sentence):
+        tokens = nltk.word_tokenize(sentence)
+        length = len(tokens)
+
+        table = [[Cell() for i in range(length + 1)] for i in range(length + 1)]
+
+        j = 1
+        while j <= length:
+            #    fill cell with left side of rules where right side is correct terminal
+            table[j - 1][j].addTags(
+                [rule.left for rule in self._grammar.rules if rule.firstRight().name == '\'' + tokens[j - 1] + '\''])
+
+            i = j - 2
+            while i >= 0:
+                k = i + 1
+                while k <= j - 1:
+                    #    iterate all rules
+                    for rule in self._grammar.rules:
+                        #    iterate tags in "b" cell
+                        for bIdx, bTag in enumerate(table[i][k].tags):
+                            #    if position "b" in rule matches tag in "b" cell
+                            if rule.firstRight().name == bTag.name:
+                                #    iterate tags in "c" cell
+                                for cIdx, cTag in enumerate(table[k][j].tags):
+                                    #    if position "c" in rule matches tag in "c" cell
+                                    if rule.secondRight().name == cTag.name:
+                                        cell = table[i][j]
+                                        aTag = Tag(rule.left.name)
+                                        aProb = rule.logProbability
+                                        bProb = bTag.logProbability
+                                        cProb = cTag.logProbability
+                                        tmpProb = aProb + bProb + cProb
+
+                                        cellTag = None
+                                        for tag in cell.tags:
+                                            if tag.name == rule.left.name:
+                                                cellTag = tag
+
+                                        if cellTag != None:
+                                            if cellTag.logProbability > tmpProb:
+                                                cell.tags.remove(cellTag)
+                                            else:
+                                                continue
+
+                                        bPointer = Pointer(i, k, bIdx)
+                                        cPointer = Pointer(k, j, cIdx)
+                                        aTag.pointers.append(bPointer)
+                                        aTag.pointers.append(cPointer)
+                                        table[i][j].addTag(aTag)
+                    k += 1
+                i -= 1
+            j += 1
+
+        return table
+
+    def _parse(self, sentence):
+        table = self._buildTable(sentence)
+        strings = self._buildStrings(table, sentence)
+        return strings
+
+    def _buildStrings(self, table, sentence):
+        strings = []
+
+        rootCell = table[0][len(table) - 1]
+
+        tokens = nltk.word_tokenize(sentence)
+
+        for tag in rootCell.tags:
+            tokenCopy = copy.deepcopy(tokens)
+            #    if any tags are start tag in root cell, begin to descent into tree
+            if tag.name == self._grammar.start:
+                string = ''
+                string = self._addNodeToString(table, tag, string, tokenCopy)
+                strings.append(string)
+
+        return strings
+
+    def _addNodeToString(self, table, tag, string, tokens):
+        string += self.start + tag.name + ' '
+
+        for pointer in tag.pointers:
+            childTag = table[pointer.i][pointer.j].tags[pointer.tagIdx]
+            string = self._addNodeToString(table, childTag, string, tokens)
+
+        if len(tag.pointers) == 0:
+            if len(tokens) > 0:
+                string += tokens[0]
+                tokens.pop(0)
+
+        string += self.end
+        return string
 
 
 class Cell:
