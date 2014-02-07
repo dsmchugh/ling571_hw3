@@ -56,4 +56,3 @@
 (TOP (X_S_VP (X_S_VP' (VB Show)(NP_PRP me))(NP (NP (DT the)(NNS meals))(PP (IN on)(NP (NNP Southwest)(NNP Airlines)))))(PUNC .))
 (TOP (X_S_VP (X_S_VP' (VB Show)(NP_PRP me))(NP (NP' (NP' (NP' (NP' (NP' (NP' (NP (DT the)(NNS flights))(PP (IN from)(NP_NNP Dulles)))(NNP International))(X_TO to))(NNP San))(NNP Diego))(PP (IN with)(NP (CD one)(NN stop))))(PP (IN in)(NP (NNP Los)(NNP Angeles)))))(PUNC .))
 
-
